@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>История посещений - FacePanel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+
+    <script th:src="@{/js/sockjs.min.js}"></script>
+    <script th:src="@{/js/stomp.min.js}"></script>
+
+    <link rel="stylesheet" th:href="@{/css/common.css}">
+
+    <style>
+        .filters {
+            background: var(--bg-elevated);
+            padding: 20px;
+            border-radius: var(--radius-md);
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+        }
+
+        .filter-row {
+            display: flex;
+            align-items: flex-end;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .filter-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 0.85rem;
+        }
+
+        .filter-group input[type="date"] {
+            width: 180px;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .stats-row .stat-card { flex: 1; }
+
+        .attendance-list {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .attendance-header {
+            display: grid;
+            grid-template-columns: 1fr 100px 100px 140px 90px;
+            gap: 16px;
+            padding: 12px 20px;
+            color: var(--text-dim);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .attendance-item {
+            display: grid;
+            grid-template-columns: 1fr 100px 100px 140px 90px;
+            gap: 16px;
+            align-items: center;
+            padding: 14px 20px;
+            border-bottom: 1px solid var(--border);
+            transition: background var(--transition);
+        }
+
+        .attendance-item:last-child { border-bottom: none; }
+        .attendance-item:hover { background: rgba(255, 255, 255, 0.02); }
+
+        .person-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .person-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #000;
+            font-weight: 700;
+            font-size: 0.9rem;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        .person-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .person-details { min-width: 0; }
+
+        .person-details h3 {
+            margin: 0;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .person-details p {
+            margin: 2px 0 0;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        .person-group {
+            color: var(--accent-light);
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .timestamp {
+            color: var(--text-primary);
+            font-weight: 600;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+        }
+
+        .event-type {
+            padding: 4px 10px;
+            border-radius: var(--radius-pill);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .event-detected {
+            background: var(--success-subtle);
+            color: var(--success);
+            border: 1px solid var(--success-border);
+        }
+
+        .event-enter {
+            background: var(--blue-subtle);
+            color: var(--blue);
+            border: 1px solid var(--blue-border);
+        }
+
+        .event-leave {
+            background: var(--danger-subtle);
+            color: var(--danger);
+            border: 1px solid var(--danger-border);
+        }
+
+        .session-info-text {
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .camera-tag {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border);
+            padding: 4px 10px;
+            border-radius: var(--radius-pill);
+            text-align: center;
+        }
+
+        @media (max-width: 900px) {
+            .attendance-item, .attendance-header {
+                grid-template-columns: 1fr 80px 80px;
+            }
+            .attendance-header span:nth-child(4),
+            .attendance-header span:nth-child(5),
+            .attendance-item .session-info-text,
+            .attendance-item .camera-tag { display: none; }
+            .stats-row { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+
+<div th:replace="~{fragments/header :: header}"></div>
+
+<main class="main-content">
+    <div class="card">
+        <h1>История посещений</h1>
+
+        <!-- Фильтры -->
+        <div class="filters">
+            <form method="get" action="/attendance">
+                <div class="filter-row">
+                    <div class="filter-group">
+                        <label for="date">Дата</label>
+                        <input type="date" id="date" name="date" th:value="${selectedDate}">
+                    </div>
+                    <div class="filter-group">
+                        <label for="search">Поиск по ФИО</label>
+                        <input type="text" id="search" name="search" placeholder="Фамилия или имя" th:value="${search}">
+                    </div>
+                    <div class="filter-group">
+                        <label for="building">Корпус</label>
+                        <select id="building" name="building">
+                            <option value="">Все корпуса</option>
+                            <option th:each="b : ${buildings}" th:value="${b}" th:text="${b}"
+                                th:selected="${b == selectedBuilding}">Корпус</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="camera">Камера</label>
+                        <select id="camera" name="camera">
+                            <option value="">Все камеры</option>
+                            <option th:each="cam : ${cameras}" th:value="${cam.name}"
+                                th:text="${cam.name + (cam.building != null and cam.building != '' ? ' (' + cam.building + ')' : '')}"
+                                th:selected="${cam.name == selectedCamera}">KPP1</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-small">Применить</button>
+                    <a href="/attendance" class="btn btn-secondary btn-small">Сбросить</a>
+                </div>
+            </form>
+        </div>
+
+        <!-- Статистика -->
+        <div class="stats-row" th:if="${attendances != null and !attendances.isEmpty()}">
+            <div class="stat-card">
+                <div class="stat-number" th:text="${#lists.size(attendances)}">0</div>
+                <div class="stat-label">Всего записей</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" th:text="${#sets.size(attendances.![person.id])}">0</div>
+                <div class="stat-label">Уникальных людей</div>
+            </div>
+        </div>
+
+        <!-- Список -->
+        <div class="attendance-list" th:if="${attendances != null and !attendances.isEmpty()}">
+            <div class="attendance-header">
+                <span>Персона</span>
+                <span>Время</span>
+                <span>Событие</span>
+                <span>Мероприятие</span>
+                <span>Камера</span>
+            </div>
+            <div th:each="attendance : ${attendances}" class="attendance-item">
+                <div class="person-info">
+                    <div class="person-avatar" th:if="${attendance.person.photoFilename != null and attendance.person.photoFilename != ''}">
+                        <img th:src="@{'/upload/faces/' + ${attendance.person.photoFilename} + ${personService.getPhotoExtension(attendance.person.photoFilename)}}"
+                             th:alt="${attendance.person.firstName}"
+                             onerror="this.style.display='none'; this.parentElement.textContent=this.alt.charAt(0);">
+                    </div>
+                    <div class="person-avatar" th:unless="${attendance.person.photoFilename != null and attendance.person.photoFilename != ''}" th:text="${attendance.person.firstName.charAt(0)}">A</div>
+                    <div class="person-details">
+                        <h3 th:text="${attendance.person.middleName != null and attendance.person.middleName != '' ? (attendance.person.lastName != null and attendance.person.lastName != '' ? attendance.person.lastName + ' ' : '') + attendance.person.firstName + ' ' + attendance.person.middleName : attendance.person.firstName + (attendance.person.lastName != null and attendance.person.lastName != '' ? ' ' + attendance.person.lastName : '')}">Имя</h3>
+                        <p th:text="${attendance.person.position}">Должность</p>
+                        <p class="person-group" th:text="${attendance.person.group != null ? attendance.person.group : ''}">Группа</p>
+                    </div>
+                </div>
+                <div class="timestamp" th:text="${#temporals.format(attendance.timestamp, 'HH:mm:ss')}">12:34:56</div>
+                <div class="event-type"
+                     th:classappend="${attendance.eventType == 'DETECTED' ? 'event-detected' : (attendance.eventType == 'ENTER' ? 'event-enter' : 'event-leave')}"
+                     th:text="${attendance.eventType}">DETECTED</div>
+                <div class="session-info-text" th:text="${attendance.session != null ? attendance.session.name : 'Без мероприятия'}">Мероприятие</div>
+                <div class="camera-tag" th:text="${attendance.cameraName != null && attendance.cameraName != '' ? attendance.cameraName : '—'}">KPP1</div>
+            </div>
+        </div>
+
+        <div th:if="${attendances == null or attendances.isEmpty()}" class="empty-state">
+            <div class="empty-icon">&#x1F4CB;</div>
+            <h3>Нет записей</h3>
+            <p>За выбранную дату записи о посещениях не найдены</p>
+        </div>
+    </div>
+</main>
+</body>
+</html>

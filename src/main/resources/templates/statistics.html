@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ru" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Статистика - FacePanel</title>
+
+    <script th:src="@{/js/chart.js}"></script>
+    <script th:src="@{/js/sockjs.min.js}"></script>
+    <script th:src="@{/js/stomp.min.js}"></script>
+
+    <link rel="stylesheet" th:href="@{/css/common.css}">
+
+    <style>
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        .chart-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+
+        .chart-card h3 {
+            color: var(--text-primary);
+            margin-bottom: 16px;
+            font-size: 1rem;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 280px;
+        }
+
+        .period-selector {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .period-btn {
+            padding: 7px 16px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-secondary);
+            border-radius: var(--radius-pill);
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all var(--transition);
+        }
+
+        .period-btn:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--border-hover);
+            color: var(--text-primary);
+        }
+
+        .period-btn.active {
+            background: var(--accent-subtle);
+            border-color: var(--accent-border);
+            color: var(--accent);
+        }
+
+        .export-section {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 28px;
+        }
+
+        .export-section h3 {
+            margin-bottom: 8px;
+        }
+
+        .export-section>p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+        }
+
+        .checkbox-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            transition: color var(--transition);
+        }
+
+        .checkbox-label:hover {
+            color: var(--text-primary);
+        }
+
+        .checkbox-label input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+        }
+
+        .no-data h3 {
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .no-data p {
+            font-size: 0.9rem;
+            margin-bottom: 6px;
+        }
+
+        .debug-info {
+            color: var(--text-dim);
+            font-size: 0.82rem;
+            line-height: 1.8;
+        }
+
+        .debug-info strong {
+            color: var(--text-muted);
+        }
+
+        @media (max-width: 768px) {
+            .stats-container {
+                grid-template-columns: 1fr;
+            }
+
+            .chart-wrapper {
+                height: 220px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div th:replace="~{fragments/header :: header}"></div>
+
+    <main class="main-content">
+        <div class="card">
+            <h1>Статистика посещений</h1>
+
+            <div class="period-selector">
+                <a href="?period=today" class="period-btn"
+                    th:classappend="${period == 'today'} ? 'active' : ''">Сегодня</a>
+                <a href="?period=week" class="period-btn"
+                    th:classappend="${period == 'week'} ? 'active' : ''">Неделя</a>
+                <a href="?period=month" class="period-btn"
+                    th:classappend="${period == 'month'} ? 'active' : ''">Месяц</a>
+                <a href="?period=year" class="period-btn" th:classappend="${period == 'year'} ? 'active' : ''">Год</a>
+            </div>
+
+            <div class="stats-container">
+                <div class="stat-card">
+                    <div class="stat-number" th:text="${totalAttendances}">0</div>
+                    <div class="stat-label">Посещений</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" th:text="${uniquePersons}">0</div>
+                    <div class="stat-label">Уникальных персон</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" th:text="${totalSessions}">0</div>
+                    <div class="stat-label">Мероприятий</div>
+                </div>
+            </div>
+
+            <!-- Графики -->
+            <div class="chart-card" th:if="${!dailyStats.isEmpty()}">
+                <h3>Посещения по дням</h3>
+                <div class="chart-wrapper">
+                    <canvas id="dailyChart"></canvas>
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;"
+                th:if="${!groupStats.isEmpty() or !sessionStats.isEmpty()}">
+                <div class="chart-card" th:if="${!groupStats.isEmpty()}">
+                    <h3>По группам</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="groupChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-card" th:if="${!sessionStats.isEmpty()}">
+                    <h3>По мероприятиям</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="sessionChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Отладка -->
+            <div class="chart-card" th:if="${totalAttendances == 0}">
+                <h3>Информация</h3>
+                <div class="debug-info">
+                    <p><strong>Период:</strong> <span th:text="${period}">today</span></p>
+                    <p><strong>Дата начала:</strong> <span th:text="${startDate}">—</span></p>
+                    <p><strong>Дата окончания:</strong> <span th:text="${endDate}">—</span></p>
+                </div>
+            </div>
+
+            <!-- Данные для JS -->
+            <div style="display: none;" id="stats-data">
+                <span id="daily-stats-json" th:text="${dailyStats}"></span>
+                <span id="group-stats-json" th:text="${groupStats}"></span>
+                <span id="session-stats-json" th:text="${sessionStats}"></span>
+            </div>
+
+            <div class="no-data" th:if="${dailyStats.isEmpty()}">
+                <h3>Нет данных за выбранный период</h3>
+                <p>Попробуйте выбрать другой период</p>
+            </div>
+
+            <!-- Экспорт -->
+            <div class="export-section">
+                <h3>Экспорт данных</h3>
+                <p>Скачайте отчет в формате Excel</p>
+
+                <div class="checkbox-grid">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="column" value="date" checked>
+                        <span>Дата</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="column" value="name" checked>
+                        <span>ФИО</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="column" value="group" checked>
+                        <span>Группа</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="column" value="position" checked>
+                        <span>Должность</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="column" value="arrival" checked>
+                        <span>Пришёл</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="column" value="departure" checked>
+                        <span>Ушёл</span>
+                    </label>
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="column" value="event" checked>
+                        <span>Мероприятие</span>
+                    </label>
+                </div>
+
+                <button onclick="downloadExcel()" class="btn btn-primary btn-lg">Скачать Excel</button>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        function getStatsData() {
+            const dailyStatsText = document.getElementById('daily-stats-json')?.textContent || '';
+            const groupStatsText = document.getElementById('group-stats-json')?.textContent || '';
+            const sessionStatsText = document.getElementById('session-stats-json')?.textContent || '';
+
+            function parseMapString(mapString) {
+                if (!mapString || mapString.trim() === '') return {};
+                const result = {};
+                const cleanString = mapString.replace(/[{}]/g, '');
+                if (cleanString.trim() === '') return {};
+                cleanString.split(',').forEach(pair => {
+                    const [key, value] = pair.split('=');
+                    if (key && value !== undefined) {
+                        result[key.trim()] = parseInt(value.trim()) || 0;
+                    }
+                });
+                return result;
+            }
+
+            return {
+                dailyStats: parseMapString(dailyStatsText),
+                groupStats: parseMapString(groupStatsText),
+                sessionStats: parseMapString(sessionStatsText)
+            };
+        }
+
+        const { dailyStats, groupStats, sessionStats } = getStatsData();
+
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
+
+        if (Object.keys(dailyStats).length > 0) {
+            new Chart(document.getElementById('dailyChart').getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: Object.keys(dailyStats).sort(),
+                    datasets: [{
+                        label: 'Посещения',
+                        data: Object.keys(dailyStats).sort().map(d => dailyStats[d]),
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        pointBackgroundColor: '#3b82f6',
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.04)' } },
+                        x: { grid: { color: 'rgba(255,255,255,0.04)' } }
+                    }
+                }
+            });
+        }
+
+        if (Object.keys(groupStats).length > 0) {
+            new Chart(document.getElementById('groupChart').getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(groupStats),
+                    datasets: [{
+                        data: Object.values(groupStats),
+                        backgroundColor: ['#3b82f6', '#06b6d4', '#8b5cf6', '#f59e0b', '#ef4444', '#10b981', '#f97316', '#ec4899'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true } } },
+                    cutout: '60%'
+                }
+            });
+        }
+
+        if (Object.keys(sessionStats).length > 0) {
+            new Chart(document.getElementById('sessionChart').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(sessionStats),
+                    datasets: [{
+                        label: 'Персоны',
+                        data: Object.values(sessionStats),
+                        backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                        borderColor: '#3b82f6',
+                        borderWidth: 1,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.04)' } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        function downloadExcel() {
+            const checkboxes = document.querySelectorAll('input[name="column"]:checked');
+            const selectedColumns = Array.from(checkboxes).map(cb => cb.value);
+            const urlParams = new URLSearchParams(window.location.search);
+            const period = urlParams.get('period') || 'today';
+            let downloadUrl = '/statistics/export/excel?period=' + period;
+            selectedColumns.forEach(col => { downloadUrl += '&columns=' + col; });
+            window.location.href = downloadUrl;
+        }
+    </script>
+</body>
+
+</html>

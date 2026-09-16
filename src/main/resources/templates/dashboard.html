@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+
+<head>
+    <meta charset="UTF-8">
+    <title>FacePanel — Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+
+    <script th:src="@{/js/sockjs.min.js}"></script>
+    <script th:src="@{/js/stomp.min.js}"></script>
+
+    <link rel="stylesheet" th:href="@{/css/common.css}">
+
+    <style>
+        #logs-container {
+            margin-top: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 72vh;
+            overflow-y: auto;
+        }
+
+        .log-item {
+            background: var(--bg-elevated);
+            padding: 12px 16px;
+            border-radius: var(--radius-md);
+            display: grid;
+            grid-template-columns: 70px 1fr 100px 100px 110px 120px 1fr;
+            gap: 16px;
+            align-items: center;
+            transition: all var(--transition);
+            border-left: 3px solid transparent;
+        }
+
+        .log-item:hover {
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .log-item.new {
+            border-left-color: var(--accent);
+            animation: highlight 2s ease-out;
+        }
+
+        .log-time {
+            color: var(--accent);
+            font-weight: 600;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.85rem;
+        }
+
+        .log-person-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .log-person-image img {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid var(--accent-border);
+            flex-shrink: 0;
+        }
+
+        .log-person-image-placeholder {
+            width: 36px;
+            height: 36px;
+            background: var(--accent-subtle);
+            border: 2px solid var(--accent-border);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .placeholder-icon {
+            font-size: 1rem;
+            color: var(--accent);
+            opacity: 0.6;
+        }
+
+        .log-person {
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .log-event {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-align: center;
+            padding: 4px 10px;
+            border-radius: var(--radius-pill);
+            background: var(--accent-subtle);
+            color: var(--accent);
+            border: 1px solid var(--accent-border);
+        }
+
+        .log-camera {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-align: center;
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-pill);
+            padding: 4px 10px;
+        }
+
+        .log-session {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            text-align: center;
+        }
+
+        .log-group {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* display:grid у .log-item перебивает атрибут hidden — возвращаем ему силу */
+        .log-item[hidden] {
+            display: none !important;
+        }
+
+        .log-building {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .log-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            margin: 12px 0 16px;
+        }
+
+        .log-filters select {
+            padding: 6px 10px;
+            border-radius: var(--radius-md);
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+            font-size: 0.85rem;
+            min-width: 150px;
+        }
+
+        .filter-count {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            margin-left: auto;
+        }
+
+        .filter-empty {
+            padding: 24px;
+            text-align: center;
+            color: var(--text-dim);
+        }
+
+        @media (max-width: 600px) {
+            .log-filters select {
+                flex: 1 1 100%;
+                min-width: 0;
+            }
+
+            .filter-count {
+                margin-left: 0;
+            }
+        }
+
+        .log-header {
+            display: grid;
+            grid-template-columns: 70px 1fr 100px 100px 110px 120px 1fr;
+            gap: 16px;
+            padding: 0 16px 12px;
+            color: var(--text-dim);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border);
+        }
+
+        @media (max-width: 900px) {
+
+            .log-item,
+            .log-header {
+                grid-template-columns: 60px 1fr 80px;
+                gap: 10px;
+            }
+
+            .log-camera,
+            .log-building,
+            .log-session,
+            .log-group,
+            .log-header span:nth-child(4),
+            .log-header span:nth-child(5),
+            .log-header span:nth-child(6),
+            .log-header span:nth-child(7) {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div th:replace="~{fragments/header :: header}"></div>
+
+    <main class="main-content">
+        <div class="card">
+            <h1>Логи распознавания</h1>
+
+            <div class="log-filters">
+                <select id="filter-building" aria-label="Фильтр по корпусу">
+                    <option value="">Все корпуса</option>
+                    <option th:each="b : ${buildings}" th:value="${b}" th:text="${b}">Корпус</option>
+                </select>
+                <select id="filter-camera" aria-label="Фильтр по камере">
+                    <option value="">Все камеры</option>
+                    <option th:each="cam : ${cameras}" th:value="${cam.name}"
+                            th:attr="data-building=${cam.building}" th:text="${cam.name}">KPP1</option>
+                </select>
+                <span class="filter-count" id="filter-count"></span>
+            </div>
+
+            <div class="log-header">
+                <span>Время</span>
+                <span>Персона</span>
+                <span>Событие</span>
+                <span>Камера</span>
+                <span>Корпус</span>
+                <span>Мероприятие</span>
+                <span>Группа</span>
+            </div>
+
+            <div id="logs-container">
+                <div th:each="log : ${logs}" class="log-item" th:id="'log-' + ${log.id}"
+                    th:attr="data-camera=${log.cameraName},data-building=${buildingByCamera[log.cameraName]}">
+                    <div class="log-time" th:text="${#temporals.format(log.timestamp, 'HH:mm:ss')}">12:34:56</div>
+                    <div class="log-person-info">
+                        <div class="log-person-image"
+                            th:if="${log.person != null and log.person.photoFilename != null and log.person.photoFilename != ''}">
+                            <img th:src="@{'/upload/faces/' + ${log.person.photoFilename} + ${personService.getPhotoExtension(log.person.photoFilename)}}"
+                                th:alt="${log.person.firstName + ' ' + log.person.lastName}"
+                                onerror="this.style.display='none'">
+                        </div>
+                        <div class="log-person-image-placeholder"
+                            th:unless="${log.person != null and log.person.photoFilename != null and log.person.photoFilename != ''}">
+                            <div class="placeholder-icon">&#x1F464;</div>
+                        </div>
+                        <div class="log-person"
+                            th:text="${log.person != null ? (log.person.middleName != null and log.person.middleName != '' ? (log.person.lastName != null and log.person.lastName != '' ? log.person.lastName + ' ' : '') + log.person.firstName + ' ' + log.person.middleName : log.person.firstName + (log.person.lastName != null and log.person.lastName != '' ? ' ' + log.person.lastName : '')) : 'Неизвестно'}">
+                            Имя Фамилия</div>
+                    </div>
+                    <div class="log-event" th:text="${log.eventType}">DETECTED</div>
+                    <div class="log-camera"
+                        th:text="${log.cameraName != null && log.cameraName != '' ? log.cameraName : 'Unknown'}">KPP1
+                    </div>
+                    <div class="log-building"
+                        th:text="${buildingByCamera[log.cameraName] != null ? buildingByCamera[log.cameraName] : '—'}">
+                        Корпус</div>
+                    <div class="log-session" th:text="${log.session != null ? log.session.name : 'Без мероприятия'}">
+                        Мероприятие</div>
+                    <div class="log-group"
+                        th:text="${log.person != null and log.person.group != null ? log.person.group : 'Без группы'}">
+                        Группа</div>
+                </div>
+                <div class="filter-empty" id="filter-empty" style="display: none;">
+                    Под выбранный фильтр записей нет
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">FacePanel &copy; 2025</footer>
+
+    <script>
+        let stompClient = null;
+
+        function connect() {
+            const socket = new SockJS('/ws');
+            stompClient = Stomp.over(socket);
+            stompClient.debug = null;
+
+            stompClient.connect({}, function (frame) {
+                updateConnectionStatus(true);
+                stompClient.subscribe('/topic/attendance', function (message) {
+                    try {
+                        const data = JSON.parse(message.body);
+                        handleMessage(data);
+                    } catch (e) {
+                        console.error('Bad message', e);
+                    }
+                });
+            }, function (error) {
+                updateConnectionStatus(false);
+                setTimeout(connect, 3000);
+            });
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connection-status');
+            if (connected) {
+                statusEl.innerHTML = '<span>Подключено</span>';
+                statusEl.className = 'connection-status connected';
+            } else {
+                statusEl.innerHTML = '<span>Отключено</span>';
+                statusEl.className = 'connection-status disconnected';
+            }
+        }
+
+        function handleMessage(msg) {
+            const logsContainer = document.getElementById('logs-container');
+            const time = new Date(msg.timestamp).toLocaleTimeString();
+
+            const logElement = document.createElement('div');
+            logElement.className = 'log-item new';
+            logElement.id = 'log-' + msg.id;
+
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'log-time';
+            timeDiv.textContent = time;
+
+            const personInfoDiv = document.createElement('div');
+            personInfoDiv.className = 'log-person-info';
+
+            const hasPhoto = msg.personPhotoFilename && msg.personPhotoFilename !== '';
+            const photoExtension = msg.personPhotoExtension || '.jpg';
+
+            if (hasPhoto) {
+                const imageDiv = document.createElement('div');
+                imageDiv.className = 'log-person-image';
+                const img = document.createElement('img');
+                img.src = '/upload/faces/' + msg.personPhotoFilename + photoExtension;
+                img.alt = msg.personName;
+                img.onerror = function () { this.style.display = 'none'; };
+                imageDiv.appendChild(img);
+                personInfoDiv.appendChild(imageDiv);
+            } else {
+                const placeholderDiv = document.createElement('div');
+                placeholderDiv.className = 'log-person-image-placeholder';
+                placeholderDiv.innerHTML = '<div class="placeholder-icon">&#x1F464;</div>';
+                personInfoDiv.appendChild(placeholderDiv);
+            }
+
+            const personDiv = document.createElement('div');
+            personDiv.className = 'log-person';
+            personDiv.textContent = msg.personName;
+            personInfoDiv.appendChild(personDiv);
+
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'log-group';
+            groupDiv.textContent = msg.personGroup || 'Без группы';
+
+            const eventDiv = document.createElement('div');
+            eventDiv.className = 'log-event';
+            eventDiv.textContent = msg.eventType;
+
+            const cameraDiv = document.createElement('div');
+            cameraDiv.className = 'log-camera';
+            cameraDiv.textContent = msg.cameraName || 'Unknown';
+
+            const buildingDiv = document.createElement('div');
+            buildingDiv.className = 'log-building';
+            buildingDiv.textContent = msg.building || '\u2014';
+
+            const sessionDiv = document.createElement('div');
+            sessionDiv.className = 'log-session';
+            sessionDiv.textContent = msg.sessionName || 'Без мероприятия';
+
+            // Данные для фильтра — строка должна фильтроваться так же, как отрисованные сервером
+            logElement.setAttribute('data-camera', msg.cameraName || '');
+            logElement.setAttribute('data-building', msg.building || '');
+
+            logElement.appendChild(timeDiv);
+            logElement.appendChild(personInfoDiv);
+            logElement.appendChild(eventDiv);
+            logElement.appendChild(cameraDiv);
+            logElement.appendChild(buildingDiv);
+            logElement.appendChild(sessionDiv);
+            logElement.appendChild(groupDiv);
+
+            logsContainer.insertBefore(logElement, logsContainer.firstChild);
+            applyFilters();
+
+            setTimeout(() => { logElement.classList.remove('new'); }, 2000);
+        }
+
+        // --- Фильтры по корпусу и камере ---
+        // Фильтруем на клиенте: строки приходят и от сервера, и живьём по WebSocket,
+        // так что единая функция применяется к тем и другим.
+        const buildingSelect = document.getElementById('filter-building');
+        const cameraSelect = document.getElementById('filter-camera');
+        const countEl = document.getElementById('filter-count');
+        const emptyEl = document.getElementById('filter-empty');
+
+        function applyFilters() {
+            const building = buildingSelect.value;
+            const camera = cameraSelect.value;
+            const rows = document.querySelectorAll('#logs-container .log-item');
+            let shown = 0;
+
+            rows.forEach(row => {
+                const rowCamera = row.getAttribute('data-camera') || '';
+                const rowBuilding = row.getAttribute('data-building') || '';
+                const matches = (!building || rowBuilding === building)
+                             && (!camera || rowCamera === camera);
+                row.hidden = !matches;
+                if (matches) shown++;
+            });
+
+            countEl.textContent = rows.length
+                ? (shown === rows.length ? shown + ' записей' : shown + ' из ' + rows.length)
+                : '';
+            emptyEl.style.display = (rows.length && shown === 0) ? 'block' : 'none';
+        }
+
+        // Выбор корпуса оставляет в списке камер только его камеры
+        function syncCameraOptions() {
+            const building = buildingSelect.value;
+            let selectionStillVisible = !cameraSelect.value;
+
+            Array.from(cameraSelect.options).forEach(option => {
+                if (!option.value) return;
+                const visible = !building || option.getAttribute('data-building') === building;
+                option.hidden = !visible;
+                if (visible && option.value === cameraSelect.value) {
+                    selectionStillVisible = true;
+                }
+            });
+
+            if (!selectionStillVisible) {
+                cameraSelect.value = '';
+            }
+        }
+
+        buildingSelect.addEventListener('change', () => {
+            syncCameraOptions();
+            applyFilters();
+        });
+        cameraSelect.addEventListener('change', applyFilters);
+
+        syncCameraOptions();
+        applyFilters();
+
+        connect();
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="ru" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Персоны - FacePanel</title>
+    <script th:src="@{/js/sockjs.min.js}"></script>
+    <script th:src="@{/js/stomp.min.js}"></script>
+
+    <link rel="stylesheet" th:href="@{/css/common.css}">
+    <style>
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 28px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+
+        .page-header h1 { margin-bottom: 0; }
+
+        /* Filters */
+        .filters-section {
+            background: var(--bg-elevated);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border);
+        }
+
+        .filters-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-secondary);
+        }
+
+        .filters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .filter-group { display: flex; flex-direction: column; }
+
+        .filter-label {
+            font-weight: 500;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .filter-buttons {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        /* Stats */
+        .stats-section {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+
+        /* Groups */
+        .groups-section {
+            background: var(--bg-card);
+            border-radius: var(--radius-xl);
+            padding: 24px;
+            border: 1px solid var(--border);
+        }
+
+        .group-item {
+            margin-bottom: 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            background: var(--bg-elevated);
+            transition: border-color var(--transition);
+        }
+
+        .group-item:hover { border-color: var(--border-hover); }
+
+        .group-header {
+            color: var(--text-primary);
+            padding: 14px 20px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background var(--transition);
+            gap: 12px;
+        }
+
+        .group-header:hover { background: rgba(255, 255, 255, 0.03); }
+
+        .group-delete {
+            background: transparent;
+            border: 1px solid var(--danger);
+            color: var(--danger);
+            padding: 4px 10px;
+            border-radius: var(--radius-md);
+            font-size: 0.75rem;
+            cursor: pointer;
+            white-space: nowrap;
+            opacity: 0.65;
+            transition: opacity var(--transition), background var(--transition);
+        }
+
+        .group-delete:hover {
+            opacity: 1;
+            background: rgba(255, 69, 58, 0.12);
+        }
+
+        .group-delete[disabled] {
+            opacity: 0.4;
+            cursor: wait;
+        }
+
+        .group-name {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .group-count {
+            background: var(--accent-subtle);
+            color: var(--accent);
+            padding: 3px 10px;
+            border-radius: var(--radius-pill);
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .group-toggle {
+            font-size: 0.9rem;
+            transition: transform 0.3s ease;
+            color: var(--text-muted);
+        }
+
+        .group-toggle.expanded { transform: rotate(180deg); }
+
+        .group-content { display: none; padding: 16px 20px; }
+        .group-content.expanded { display: block; }
+
+        /* Person grid */
+        .persons-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+        }
+
+        .person-card {
+            background: var(--bg-card);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            border: 1px solid var(--border);
+            transition: all var(--transition);
+            text-align: center;
+        }
+
+        .person-card:hover {
+            border-color: var(--accent-border);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .person-image { margin-bottom: 12px; }
+
+        .person-image img {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid var(--accent-border);
+            margin: 0 auto;
+        }
+
+        .person-image-placeholder {
+            width: 72px;
+            height: 72px;
+            margin: 0 auto 12px;
+            background: var(--accent-subtle);
+            border: 2px solid var(--accent-border);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .placeholder-icon {
+            font-size: 1.6rem;
+            color: var(--accent);
+            opacity: 0.5;
+        }
+
+        .person-name {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .person-position {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 4px;
+        }
+
+        .person-group {
+            color: var(--accent-light);
+            font-size: 0.82rem;
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .person-photo {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            margin-bottom: 2px;
+        }
+
+        .person-created {
+            color: var(--text-dim);
+            font-size: 0.78rem;
+            margin-bottom: 14px;
+        }
+
+        .person-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        @media (max-width: 768px) {
+            .page-header { flex-direction: column; align-items: stretch; }
+            .filters-grid { grid-template-columns: 1fr; }
+            .persons-grid { grid-template-columns: 1fr; }
+        }
+
+        /* ── Выделение персон ── */
+        .person-card { position: relative; cursor: pointer; user-select: none; }
+
+        .person-card.selected {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-border);
+            background: var(--accent-subtle);
+        }
+
+        .person-checkbox {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid var(--border);
+            background: var(--bg-card);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
+            opacity: 0;
+            z-index: 2;
+        }
+
+        .person-card:hover .person-checkbox,
+        .person-card.selected .person-checkbox { opacity: 1; }
+
+        .person-card.selected .person-checkbox {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+            font-size: 11px;
+        }
+
+        /* Плавающая панель */
+        .bulk-panel {
+            position: fixed;
+            bottom: 28px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-xl);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            z-index: 500;
+            transition: transform 0.25s cubic-bezier(.34,1.56,.64,1);
+            white-space: nowrap;
+        }
+
+        .bulk-panel.visible {
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .bulk-count {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .bulk-count strong { color: var(--accent); }
+    </style>
+</head>
+<body>
+    <div th:replace="~{fragments/header :: header}"></div>
+
+    <main class="main-content">
+        <div class="page-header">
+            <h1>Персоны</h1>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                <button class="btn btn-secondary" onclick="openImportModal()">Массовый импорт</button>
+                <a href="/persons/new" class="btn btn-primary">+ Добавить персону</a>
+            </div>
+        </div>
+
+        <!-- Фильтры -->
+        <div class="filters-section">
+            <h3 class="filters-title">Фильтры</h3>
+            <form method="get" action="/persons">
+                <div class="filter-group" style="margin-bottom:16px;">
+                    <label class="filter-label">Поиск по ФИО</label>
+                    <input type="text" name="search" th:value="${selectedSearch}"
+                           placeholder="Введите фамилию, имя или отчество..."
+                           style="width:100%;box-sizing:border-box;">
+                </div>
+                <div class="filters-grid">
+                    <div class="filter-group">
+                        <label class="filter-label">Группа</label>
+                        <select name="group">
+                            <option value="">Все группы</option>
+                            <option th:each="group : ${stats.byGroup.keySet()}"
+                                    th:value="${group}"
+                                    th:text="${group}"
+                                    th:selected="${selectedGroup == group}">Группа</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Должность</label>
+                        <select name="position">
+                            <option value="">Все должности</option>
+                            <option th:each="position : ${stats.byPosition.keySet()}"
+                                    th:value="${position}"
+                                    th:text="${position}"
+                                    th:selected="${selectedPosition == position}">Должность</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Дата от</label>
+                        <input type="date" name="dateFrom" th:value="${selectedDateFrom}">
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Дата до</label>
+                        <input type="date" name="dateTo" th:value="${selectedDateTo}">
+                    </div>
+                </div>
+                <div class="filter-buttons">
+                    <button type="submit" class="btn btn-primary btn-small">Применить</button>
+                    <a href="/persons" class="btn btn-secondary btn-small">Сбросить</a>
+                </div>
+            </form>
+        </div>
+
+        <!-- Статистика -->
+        <div class="stats-section">
+            <div class="stat-card">
+                <div class="stat-number" th:text="${stats.total}">0</div>
+                <div class="stat-label">Всего</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" th:text="${stats.byPosition.getOrDefault('Student', 0)}">0</div>
+                <div class="stat-label">Студентов</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" th:text="${stats.byPosition.getOrDefault('Employee', 0)}">0</div>
+                <div class="stat-label">Сотрудников</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" th:text="${stats.byGroup.size()}">0</div>
+                <div class="stat-label">Групп</div>
+            </div>
+        </div>
+
+        <!-- Группированный список -->
+        <div class="groups-section">
+            <h2>Группы и категории</h2>
+
+            <div th:if="${groupedPersons != null and !groupedPersons.isEmpty()}">
+                <div th:each="group : ${groupedPersons}" class="group-item">
+                    <div class="group-header" onclick="toggleGroup(this)">
+                        <div class="group-name" th:text="${group.key}">Название группы</div>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <div class="group-count" th:text="${group.value.size()} + ' чел.'">5 чел.</div>
+                            <!-- «Одиночные» — не настоящая группа, а сборная солянка из разных групп
+                                 по одному человеку, поэтому удалять её как группу нечего -->
+                            <button type="button" class="group-delete"
+                                    th:unless="${group.key == 'Одиночные'}"
+                                    th:attr="data-group=${group.key == 'Без группы' ? '' : group.key},
+                                             data-label=${group.key},
+                                             data-total=${group.key == 'Без группы' ? stats.noGroupCount : (stats.byGroup[group.key] != null ? stats.byGroup[group.key] : group.value.size())}"
+                                    onclick="deleteGroup(event, this)">Удалить группу</button>
+                            <div class="group-toggle">&#9660;</div>
+                        </div>
+                    </div>
+                    <div class="group-content">
+                        <div class="persons-grid">
+                            <div th:each="person : ${group.value}" class="person-card"
+                                 th:data-id="${person.id}" onclick="toggleSelect(this)">
+                                <div class="person-checkbox">&#10003;</div>
+                                <div class="person-image" th:if="${person.photoFilename != null and person.photoFilename != ''}">
+                                    <img th:src="@{'/upload/faces/' + ${person.photoFilename} + ${personService.getPhotoExtension(person.photoFilename)}}"
+                                         th:alt="${person.firstName + ' ' + person.lastName}"
+                                         onerror="this.style.display='none'">
+                                </div>
+                                <div class="person-image-placeholder" th:unless="${person.photoFilename != null and person.photoFilename != ''}">
+                                    <div class="placeholder-icon">&#x1F464;</div>
+                                </div>
+                                <div class="person-name" th:text="${person.middleName != null and person.middleName != '' ? (person.lastName != null and person.lastName != '' ? person.lastName + ' ' : '') + person.firstName + ' ' + person.middleName : person.firstName + (person.lastName != null and person.lastName != '' ? ' ' + person.lastName : '')}">Имя Фамилия</div>
+                                <div class="person-position" th:text="${person.position}">Должность</div>
+                                <div class="person-group" th:text="${person.group != null ? person.group : 'Не указана'}">9-2-ПО-23</div>
+                                <div class="person-created" th:text="'Создан: ' + ${#temporals.format(person.createdAt, 'dd.MM.yyyy')}">01.01.2024</div>
+                                <div class="person-actions">
+                                    <a th:href="@{/persons/edit/{id}(id=${person.id})}" class="btn btn-outline btn-small"
+                                       onclick="event.stopPropagation()">Редактировать</a>
+                                    <a th:href="@{/persons/delete/{id}(id=${person.id})}"
+                                       class="btn btn-danger btn-small"
+                                       onclick="event.stopPropagation(); return confirm('Удалить эту персону?')">Удалить</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div th:if="${groupedPersons == null or groupedPersons.isEmpty()}" class="empty-state">
+                <div class="empty-icon">&#x1F4ED;</div>
+                <h3>Нет персон</h3>
+                <p>По выбранным фильтрам не найдено ни одной персоны</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Панель массового удаления -->
+    <div id="bulkPanel" class="bulk-panel">
+        <span class="bulk-count">Выбрано: <strong id="bulkCount">0</strong></span>
+        <button class="btn btn-secondary btn-small" onclick="clearSelection()">Отменить выделение</button>
+        <button class="btn btn-danger btn-small" onclick="deleteSelected()">Удалить выбранных</button>
+    </div>
+
+    <!-- Модальное окно массового импорта -->
+    <div id="importModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);
+         z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-xl);
+                    width:560px;max-width:95vw;max-height:85vh;overflow-y:auto;padding:32px;position:relative;">
+
+            <!-- Закрыть -->
+            <button onclick="closeImportModal()"
+                    style="position:absolute;top:16px;right:20px;background:none;border:none;
+                           color:var(--text-muted);font-size:1.5rem;cursor:pointer;line-height:1;">&times;</button>
+
+            <!-- Форма загрузки -->
+            <div id="importForm">
+                <h2 style="margin-bottom:24px;">Массовый импорт персон</h2>
+
+                <div class="filter-group" style="margin-bottom:16px;">
+                    <label class="filter-label">Категория</label>
+                    <select id="importPosition">
+                        <option value="Student">Студент</option>
+                        <option value="Employee">Сотрудник</option>
+                    </select>
+                </div>
+
+                <div class="filter-group" style="margin-bottom:8px;">
+                    <label class="filter-label">ZIP-архив</label>
+                    <input type="file" id="importFile" accept=".zip"
+                           style="padding:8px;border:1px solid var(--border);border-radius:var(--radius-md);
+                                  background:var(--bg-card);color:var(--text-primary);width:100%;box-sizing:border-box;">
+                </div>
+                <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:20px;">
+                    Структура архива: <code>папка_группы / Фамилия Имя Отчество.jpg</code>
+                </div>
+
+                <div id="importError" style="display:none;padding:10px 14px;border-radius:var(--radius-md);
+                     background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);
+                     color:#f87171;margin-bottom:16px;font-size:0.9rem;"></div>
+
+                <div style="display:flex;gap:12px;">
+                    <button id="importSubmitBtn" class="btn btn-primary" onclick="submitImport()">Импортировать</button>
+                    <button class="btn btn-secondary" onclick="closeImportModal()">Отмена</button>
+                </div>
+            </div>
+
+            <!-- Результат -->
+            <div id="importResult" style="display:none;">
+                <h2 style="margin-bottom:24px;">Результат импорта</h2>
+
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">
+                    <div class="stat-card" style="text-align:center;">
+                        <div class="stat-number" id="resTotal">0</div>
+                        <div class="stat-label">Файлов</div>
+                    </div>
+                    <div class="stat-card" style="text-align:center;">
+                        <div class="stat-number" id="resSuccess" style="color:#4ade80;">0</div>
+                        <div class="stat-label">Добавлено</div>
+                    </div>
+                    <div class="stat-card" style="text-align:center;">
+                        <div class="stat-number" id="resErrors" style="color:#f87171;">0</div>
+                        <div class="stat-label">Ошибок</div>
+                    </div>
+                </div>
+
+                <div id="importLog" style="max-height:300px;overflow-y:auto;margin-bottom:20px;"></div>
+
+                <div style="display:flex;gap:12px;">
+                    <button class="btn btn-primary" onclick="closeImportModal();location.reload()">Закрыть и обновить</button>
+                    <button class="btn btn-secondary" onclick="resetImportModal()">Импортировать ещё</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleGroup(header) {
+            const content = header.nextElementSibling;
+            const toggle = header.querySelector('.group-toggle');
+            content.classList.toggle('expanded');
+            toggle.classList.toggle('expanded');
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('group') || urlParams.has('position') || urlParams.has('dateFrom') || urlParams.has('dateTo')) {
+                document.querySelectorAll('.group-header').forEach(header => {
+                    header.nextElementSibling.classList.add('expanded');
+                    header.querySelector('.group-toggle').classList.add('expanded');
+                });
+            }
+        });
+
+        /* ── Массовый импорт ── */
+        function openImportModal() {
+            resetImportModal();
+            const modal = document.getElementById('importModal');
+            modal.style.display = 'flex';
+        }
+
+        function closeImportModal() {
+            document.getElementById('importModal').style.display = 'none';
+        }
+
+        function resetImportModal() {
+            document.getElementById('importForm').style.display = 'block';
+            document.getElementById('importResult').style.display = 'none';
+            document.getElementById('importFile').value = '';
+            document.getElementById('importError').style.display = 'none';
+            const btn = document.getElementById('importSubmitBtn');
+            btn.disabled = false;
+            btn.textContent = 'Импортировать';
+        }
+
+        async function submitImport() {
+            const fileInput = document.getElementById('importFile');
+            const position  = document.getElementById('importPosition').value;
+            const errorEl   = document.getElementById('importError');
+            const btn       = document.getElementById('importSubmitBtn');
+
+            errorEl.style.display = 'none';
+
+            if (!fileInput.files || fileInput.files.length === 0) {
+                errorEl.textContent = 'Выберите ZIP-файл';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Обработка...';
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('position', position);
+
+            try {
+                const resp = await fetch('/persons/import', { method: 'POST', body: formData });
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    errorEl.textContent = text || ('Ошибка сервера: ' + resp.status);
+                    errorEl.style.display = 'block';
+                    btn.disabled = false;
+                    btn.textContent = 'Импортировать';
+                    return;
+                }
+                const result = await resp.json();
+                showImportResult(result);
+            } catch (e) {
+                errorEl.textContent = 'Ошибка сети: ' + e.message;
+                errorEl.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = 'Импортировать';
+            }
+        }
+
+        function showImportResult(result) {
+            document.getElementById('importForm').style.display = 'none';
+            document.getElementById('importResult').style.display = 'block';
+            document.getElementById('resTotal').textContent   = result.totalFiles;
+            document.getElementById('resSuccess').textContent = result.successCount;
+            document.getElementById('resErrors').textContent  = result.errorCount;
+
+            const logEl      = document.getElementById('importLog');
+            const nonSuccess = (result.log || []).filter(e => e.status !== 'SUCCESS');
+
+            if (nonSuccess.length === 0) {
+                logEl.innerHTML = '';
+                return;
+            }
+
+            let html = '<table style="width:100%;font-size:0.82rem;border-collapse:collapse;">'
+                     + '<thead><tr>'
+                     + '<th style="text-align:left;padding:6px 8px;color:var(--text-muted);border-bottom:1px solid var(--border);">Файл</th>'
+                     + '<th style="text-align:left;padding:6px 8px;color:var(--text-muted);border-bottom:1px solid var(--border);white-space:nowrap;">Статус</th>'
+                     + '<th style="text-align:left;padding:6px 8px;color:var(--text-muted);border-bottom:1px solid var(--border);">Причина</th>'
+                     + '</tr></thead><tbody>';
+
+            for (const entry of nonSuccess) {
+                const isSkip   = entry.status === 'SKIPPED';
+                const color    = isSkip ? '#facc15' : '#f87171';
+                const label    = isSkip ? 'Пропущен' : 'Ошибка';
+                const filename = entry.filename.split('/').pop(); // только имя файла
+                html += `<tr style="border-top:1px solid var(--border);">
+                    <td style="padding:6px 8px;word-break:break-all;">${filename}</td>
+                    <td style="padding:6px 8px;color:${color};white-space:nowrap;">${label}</td>
+                    <td style="padding:6px 8px;color:var(--text-muted);">${entry.reason || ''}</td>
+                </tr>`;
+            }
+            html += '</tbody></table>';
+            logEl.innerHTML = html;
+        }
+
+        // Закрытие по клику на фон
+        document.getElementById('importModal').addEventListener('click', function(e) {
+            if (e.target === this) closeImportModal();
+        });
+
+        /* ── Массовое выделение и удаление ── */
+        const selectedIds = new Set();
+
+        function toggleSelect(card) {
+            const id = card.dataset.id;
+            if (selectedIds.has(id)) {
+                selectedIds.delete(id);
+                card.classList.remove('selected');
+            } else {
+                selectedIds.add(id);
+                card.classList.add('selected');
+            }
+            updateBulkPanel();
+        }
+
+        function updateBulkPanel() {
+            const panel = document.getElementById('bulkPanel');
+            const count = document.getElementById('bulkCount');
+            count.textContent = selectedIds.size;
+            if (selectedIds.size > 0) {
+                panel.classList.add('visible');
+            } else {
+                panel.classList.remove('visible');
+            }
+        }
+
+        function clearSelection() {
+            selectedIds.clear();
+            document.querySelectorAll('.person-card.selected').forEach(c => c.classList.remove('selected'));
+            updateBulkPanel();
+        }
+
+        // Удаляет группу целиком — всех её участников, а не только показанных фильтром.
+        // Поэтому в подтверждении фигурирует настоящее число людей в группе.
+        async function deleteGroup(event, btn) {
+            event.stopPropagation();  // иначе клик свернёт/развернёт группу
+
+            // У псевдогруппы «Без группы» значение пустое, а Thymeleaf выбрасывает
+            // атрибуты с пустым значением — getAttribute вернёт null. Приводим к ''.
+            const group = btn.getAttribute('data-group') || '';
+            const label = btn.getAttribute('data-label');
+            const total = parseInt(btn.getAttribute('data-total'), 10) || 0;
+            const shown = btn.closest('.group-item').querySelectorAll('.person-card').length;
+
+            let message = `Удалить группу «${label}» — ${total} чел.?\n\nЭто действие необратимо. `
+                        + `Фотографии будут удалены, история посещений сохранится.`;
+            if (shown < total) {
+                message = `Внимание: на экране показано ${shown} из ${total} — остальных скрыл фильтр.\n\n`
+                        + `Удалить группу «${label}» целиком, все ${total} чел.?\n\n`
+                        + `Это действие необратимо.`;
+            }
+            if (!confirm(message)) return;
+
+            btn.disabled = true;
+            btn.textContent = 'Удаляю...';
+            try {
+                const resp = await fetch('/persons/delete-group', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group })
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok) {
+                    location.reload();
+                } else {
+                    alert('Не удалось удалить группу: ' + (data.error || resp.status));
+                    btn.disabled = false;
+                    btn.textContent = 'Удалить группу';
+                }
+            } catch (e) {
+                alert('Ошибка сети: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = 'Удалить группу';
+            }
+        }
+
+        async function deleteSelected() {
+            if (selectedIds.size === 0) return;
+            if (!confirm(`Удалить ${selectedIds.size} персон(у)? Это действие необратимо.`)) return;
+
+            const ids = Array.from(selectedIds).map(Number);
+            try {
+                const resp = await fetch('/persons/delete-bulk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(ids)
+                });
+                if (resp.ok) {
+                    location.reload();
+                } else {
+                    alert('Ошибка при удалении. Попробуйте ещё раз.');
+                }
+            } catch (e) {
+                alert('Ошибка сети: ' + e.message);
+            }
+        }
+    </script>
+</body>
+</html>
